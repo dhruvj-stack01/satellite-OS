@@ -111,7 +111,7 @@ function Earth() {
     <>
       <mesh>
         <sphereGeometry args={[earthRadius, 96, 64]} />
-        <meshPhongMaterial map={earthMap} specular={new THREE.Color('#8acfff')} shininess={16} />
+        <meshPhongMaterial map={earthMap} color="#f4fbff" emissive="#203e59" emissiveIntensity={0.2} specular="#071b2d" shininess={1} />
       </mesh>
       <points geometry={cities} material={cityMaterial} />
       <mesh ref={clouds} scale={1.008}>
@@ -155,7 +155,7 @@ function Earth() {
             varying vec3 vViewDirection;
             void main(){
               float rim = pow(1.0 - max(dot(normalize(vNormal), normalize(vViewDirection)), 0.0), 3.2);
-              gl_FragColor = vec4(0.19, 0.63, 1.0, rim * 0.32);
+              gl_FragColor = vec4(0.24, 0.7, 1.0, rim * 0.42);
             }
           `}
         />
@@ -165,8 +165,13 @@ function Earth() {
 }
 
 function SatelliteModel({ color, selected, label, onClick }: { color: string; selected: boolean; label: string; onClick: () => void }) {
+  const model = useRef<THREE.Group>(null)
   const pulse = useRef<THREE.Mesh>(null)
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, delta) => {
+    if (model.current) {
+      model.current.rotation.y += 0.22 * delta
+      model.current.rotation.x += 0.045 * delta
+    }
     if (pulse.current) {
       const scale = 1 + (Math.sin(clock.elapsedTime * 2.2) + 1) * 0.12
       pulse.current.scale.setScalar(scale)
@@ -174,7 +179,7 @@ function SatelliteModel({ color, selected, label, onClick }: { color: string; se
   })
 
   return (
-    <group rotation={[0.3, 0.25, -0.4]}>
+    <group ref={model} rotation={[0.3, 0.25, -0.4]}>
       <mesh castShadow>
         <boxGeometry args={[0.105, 0.12, 0.1]} />
         <meshStandardMaterial color="#bccbd7" metalness={0.78} roughness={0.3} />
@@ -201,7 +206,7 @@ function SatelliteModel({ color, selected, label, onClick }: { color: string; se
         <torusGeometry args={[0.105, 0.0025, 5, 32]} />
         <meshBasicMaterial color={color} transparent opacity={selected ? 0.45 : 0.25} />
       </mesh>
-      <Html distanceFactor={8} position={[0, 0.18, 0]} center>
+      <Html distanceFactor={8} position={[0.32, 0.03, 0]} center>
         <button onClick={(event) => { event.stopPropagation(); onClick() }} className="space-scene-label" aria-label={`Open ${label} mission workspace`}>{label}</button>
       </Html>
     </group>
@@ -209,16 +214,8 @@ function SatelliteModel({ color, selected, label, onClick }: { color: string; se
 }
 
 function CommunicationLink({ start, end, color }: { start: THREE.Vector3; end: THREE.Vector3; color: string }) {
-  const pulse = useRef<THREE.Mesh>(null)
-  const curve = useMemo(() => new THREE.LineCurve3(start, end), [start, end])
-  useFrame(({ clock }) => {
-    if (pulse.current) pulse.current.position.copy(curve.getPoint((clock.elapsedTime * 0.18) % 1))
-  })
   return (
-    <>
-      <Line points={[start, end]} color={color} lineWidth={1} transparent opacity={0.32} dashed dashScale={4} dashSize={0.08} gapSize={0.09} />
-      <mesh ref={pulse}><sphereGeometry args={[0.018, 8, 8]} /><meshBasicMaterial color={color} /></mesh>
-    </>
+    <Line points={[start, end]} color={color} lineWidth={0.7} transparent opacity={0.18} dashed dashScale={4} dashSize={0.08} gapSize={0.09} />
   )
 }
 
@@ -227,7 +224,7 @@ type MissionGlobeProps = Omit<Props, 'socketConnected'> & { onStationSelect: (st
 function MissionGlobe({ fleet, groundStations, onSelectSpacecraft, onStationSelect }: MissionGlobeProps) {
   const globe = useRef<THREE.Group>(null)
   useFrame((_, delta) => {
-    if (globe.current) globe.current.rotation.y += delta * 0.003
+    if (globe.current) globe.current.rotation.y += delta * 0.012
   })
   const orbits = useMemo(() => [0, 1].map((orbit) => {
     const angle = orbit * 0.82 + 0.35
@@ -302,22 +299,44 @@ function MissionClock() {
 export default function SpaceMissionScene({ fleet, groundStations, socketConnected, onSelectSpacecraft }: Props) {
   const [resetKey, setResetKey] = useState(0)
   const [stationInfo, setStationInfo] = useState<GroundStation | null>(null)
+  const [earthCursor, setEarthCursor] = useState({ x: 0, y: 0, active: false, dragging: false })
   const selected = fleet.find((asset) => asset.id === 'ORBIT-X1') ?? fleet[0]
   const connected = fleet.filter((asset) => asset.communication === 'CONNECTED').length
   const hasSecurityAlert = fleet.some((asset) => asset.security.includes('POTENTIAL'))
 
   return (
-    <section id="home" className="space-mission-scene relative h-[calc(100svh-61px)] overflow-hidden border-b border-sky-300/10 bg-[#020712]" aria-label="Simulated three-dimensional mission overview">
+    <section
+      id="home"
+      className="space-mission-scene relative h-[calc(100svh-61px)] overflow-hidden border-b border-sky-300/10 bg-[#020712]"
+      aria-label="Simulated three-dimensional mission overview"
+      onPointerMove={(event) => {
+        if (!(event.target instanceof HTMLCanvasElement)) {
+          setEarthCursor((current) => current.active ? { ...current, active: false } : current)
+          return
+        }
+        const bounds = event.currentTarget.getBoundingClientRect()
+        setEarthCursor((current) => ({ ...current, x: event.clientX - bounds.left, y: event.clientY - bounds.top, active: true }))
+      }}
+      onPointerDown={(event) => {
+        if (event.target instanceof HTMLCanvasElement) setEarthCursor((current) => ({ ...current, dragging: true }))
+      }}
+      onPointerUp={() => setEarthCursor((current) => ({ ...current, dragging: false }))}
+      onPointerLeave={() => setEarthCursor((current) => ({ ...current, active: false, dragging: false }))}
+    >
       <Canvas key={resetKey} dpr={[1, 1.5]} camera={{ position: [0, 0, 5.7], fov: 42 }} gl={{ antialias: true, powerPreference: 'high-performance' }}>
         <color attach="background" args={['#020712']} />
-        <ambientLight intensity={0.72} color="#b6d7ff" />
-        <directionalLight position={[-4, 2.5, 5]} intensity={2.35} color="#fff3dd" />
+        <ambientLight intensity={0.9} color="#b6d7ff" />
+        <directionalLight position={[-4, 2.5, 5]} intensity={2.1} color="#fff0d8" />
         <pointLight position={[4, -2, -4]} intensity={0.45} color="#164c9a" />
         <Stars radius={70} depth={45} count={1900} factor={3.2} saturation={0} fade speed={0.02} />
         <Suspense fallback={null}>
           <MissionGlobe fleet={fleet} groundStations={groundStations} onSelectSpacecraft={onSelectSpacecraft} onStationSelect={setStationInfo} />
         </Suspense>
       </Canvas>
+      {earthCursor.active && <div className="earth-cursor" style={{ left: earthCursor.x, top: earthCursor.y }} aria-hidden="true">
+        <span className={earthCursor.dragging ? 'earth-cursor-reticle is-dragging' : 'earth-cursor-reticle'} />
+        <span className="earth-cursor-label">{earthCursor.dragging ? 'ROTATING EARTH' : 'DRAG TO ROTATE'}</span>
+      </div>}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_35%,rgba(2,7,18,0.22)_75%,rgba(2,7,18,0.68)_100%)]" />
       <div className="absolute left-5 top-5 z-10 max-w-[min(40vw,440px)] sm:left-8 sm:top-7">
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/25 bg-emerald-300/[.07] px-3 py-1.5 text-[9px] font-bold uppercase tracking-[.19em] text-emerald-100">

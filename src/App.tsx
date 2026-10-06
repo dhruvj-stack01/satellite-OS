@@ -3,14 +3,15 @@ import type { FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import {
   Activity, AlertTriangle, ArrowRight, ArrowUpRight, BrainCircuit, Check, Database, FileSearch,
-  ChevronDown, Menu, Orbit, Play, Search, Send, ShieldCheck, ShieldAlert, Square, X, Satellite,
+  Orbit, Play, Search, Send, Settings2, ShieldCheck, ShieldAlert, Square, Volume2, VolumeX, X, Satellite,
 } from 'lucide-react'
 import './App.css'
 import LiveSignalCanvas from './LiveSignalCanvas'
 import MissionWorkspace from './MissionWorkspace'
+import MissionAIConsole from './MissionAIConsole'
 const SpaceMissionScene = lazy(() => import('./SpaceMissionScene'))
 
-type Parameter = 'battery_voltage' | 'solar_power' | 'battery_temperature' | 'communication_signal' | 'attitude_error' | 'cpu_usage' | 'memory_usage' | 'reaction_wheel_speed'
+type Parameter = 'battery_voltage' | 'battery_current' | 'solar_power' | 'battery_temperature' | 'spacecraft_temperature' | 'communication_signal' | 'attitude_error' | 'cpu_usage' | 'memory_usage' | 'reaction_wheel_speed' | 'orbital_altitude' | 'orbital_velocity' | 'anomaly_score'
 type MetricMeta = { label: string; unit: string; min: number; max: number; warning: number; critical: number }
 type LiveMessage = { type: string; timestamp: string; source: string; values?: Record<Parameter, number>; anomalies?: Record<string, { anomaly_score: number; status: string; value: number }>; events?: Array<Record<string, string>>; mission_fleet?: FleetAsset[]; running?: boolean; replay_step?: number }
 type Incident = { id: string; title: string; severity: string; status: string; subsystem: string; summary: string; created_at?: string }
@@ -19,6 +20,8 @@ type Investigation = { mode: string; question: string; evidence_sufficiency: str
 type AuditItem = { id: number; timestamp: string; action: string; details: string }
 type LiveState = { timestamp: string; values: Record<Parameter, number>; anomalies: Record<string, { anomaly_score: number; status: string; value: number }>; running: boolean; replay_step: number }
 type MissionSample = { timestamp: string; values: Record<string, number> }
+type ReplaySample = { timestamp: string; value: number; unit: string; anomaly_score: number; status: string }
+type ReplayResponse = { spacecraft_id: string; parameter: Parameter; source: string; sample_interval_ms: number; samples: ReplaySample[] }
 type TelemetryAnalysis = {
   spacecraft_id: string
   parameter: Parameter
@@ -56,20 +59,35 @@ type GroundStation = { id: string; location: string; latitude: number; longitude
 const APP_VERSION = '1.1.0'
 const PARAMS: Array<{ id: Parameter; label: string; unit: string }> = [
   { id: 'battery_voltage', label: 'Battery voltage', unit: 'V' },
+  { id: 'battery_current', label: 'Battery current', unit: 'A' },
   { id: 'solar_power', label: 'Solar power', unit: 'W' },
-  { id: 'battery_temperature', label: 'Temperature', unit: '°C' },
+  { id: 'battery_temperature', label: 'Battery temperature', unit: '°C' },
+  { id: 'spacecraft_temperature', label: 'Spacecraft temperature', unit: '°C' },
   { id: 'communication_signal', label: 'Communication', unit: 'dBm' },
   { id: 'attitude_error', label: 'Attitude error', unit: '°' },
   { id: 'cpu_usage', label: 'CPU usage', unit: '%' },
   { id: 'memory_usage', label: 'Memory', unit: '%' },
   { id: 'reaction_wheel_speed', label: 'Reaction wheel', unit: 'RPM' },
+  { id: 'orbital_altitude', label: 'Altitude', unit: 'km' },
+  { id: 'orbital_velocity', label: 'Velocity', unit: 'km/s' },
+  { id: 'anomaly_score', label: 'Anomaly score', unit: 'score' },
 ]
-const NAV = [
-  ['Mission', 'mission'], ['Telemetry', 'telemetry'], ['Incidents', 'incidents'], ['AI Copilot', 'copilot'],
-  ['Security', 'security'], ['Evidence', 'evidence'], ['Audit', 'audit'], ['Safety', 'safety'], ['Architecture', 'architecture'],
-  ['Ingestion', 'data'], ['Analysis', 'analysis'],
+const WORKSPACE_NAV = [
+  { label: 'Home', id: 'home', path: '/', icon: Orbit },
+  { label: 'Mission', id: 'mission', path: '/workspace/mission', icon: Satellite },
+  { label: 'Satellites', id: 'satellites', path: '/workspace/satellites', icon: Satellite },
+  { label: 'Telemetry', id: 'telemetry', path: '/workspace/telemetry', icon: Activity },
+  { label: 'AI Copilot', id: 'copilot', path: '/workspace/copilot', icon: BrainCircuit },
+  { label: 'Analysis', id: 'analysis', path: '/workspace/analysis', icon: Activity },
+  { label: 'History', id: 'history', path: '/mission/orbit-x1/history', icon: Database },
+  { label: 'Incidents', id: 'incidents', path: '/workspace/incidents', icon: AlertTriangle },
+  { label: 'Communication', id: 'communication', path: '/mission/orbit-x1/communication', icon: Orbit },
+  { label: 'Security', id: 'security', path: '/mission/orbit-x1/security', icon: ShieldCheck },
+  { label: 'Evidence', id: 'evidence', path: '/mission/orbit-x1/evidence', icon: FileSearch },
+  { label: 'Audit', id: 'audit', path: '/mission/orbit-x1/audit', icon: Database },
+  { label: 'Demo', id: 'demo', path: '/workspace/demo', icon: Play },
+  { label: 'Settings', id: 'settings', path: '/workspace/settings', icon: Settings2 },
 ]
-const featureHref = (id: string) => `/#${id}`
 const fmtTime = (value?: string) => value ? new Date(value).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }) + ' UTC' : '--:--:-- UTC'
 const card = 'panel-surface rounded-2xl border border-slate-800/90'
 const chip = 'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]'
@@ -103,7 +121,7 @@ function App() {
   const [simulationRunning, setSimulationRunning] = useState(true)
   const [socketConnected, setSocketConnected] = useState(false)
   const [error, setError] = useState('')
-  const [mobileMenu, setMobileMenu] = useState(false)
+  const [reducedMotion, setReducedMotion] = useState(() => window.localStorage.getItem('mission-ops-reduced-motion') === 'true')
   const [query, setQuery] = useState('Why did battery voltage decrease?')
   const [answer, setAnswer] = useState<Investigation | null>(null)
   const [busy, setBusy] = useState(false)
@@ -113,6 +131,12 @@ function App() {
   const [contactState, setContactState] = useState('')
   const [ingestState, setIngestState] = useState('')
   const [chartWindowSeconds, setChartWindowSeconds] = useState(30)
+  const [chartSource, setChartSource] = useState<'LIVE' | 'REPLAY'>('LIVE')
+  const [replayData, setReplayData] = useState<ReplayResponse | null>(null)
+  const [replayIndex, setReplayIndex] = useState(-1)
+  const [replaySpeed, setReplaySpeed] = useState(4)
+  const [replayPlaying, setReplayPlaying] = useState(false)
+  const [emergencyAudioEnabled, setEmergencyAudioEnabled] = useState(false)
   const [analysisWindowSeconds, setAnalysisWindowSeconds] = useState(300)
   const [analysisResult, setAnalysisResult] = useState<{ key: string; data?: TelemetryAnalysis; error?: string } | null>(null)
   const [timeNow, setTimeNow] = useState(() => new Date())
@@ -120,6 +144,10 @@ function App() {
   const refreshDataRef = useRef<() => Promise<void>>(() => Promise.resolve())
   const missionHistoryRef = useRef<Record<string, MissionSample[]>>({})
   const packetStreamRef = useRef<Record<string, FleetAsset['last_known_message'][]>>({})
+  const replayStartRef = useRef(0)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const lastEmergencySignatureRef = useRef('')
+  const replayIndexRef = useRef(-1)
 
   const navigateTo = useCallback((path: string) => {
     window.history.pushState({}, '', path)
@@ -139,17 +167,14 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (/^\/mission\/orbit-x[12](\/|$)/i.test(window.location.pathname)) return
-    const pathToSection: Record<string, string> = {
-      '/dashboard': 'telemetry', '/mission': 'mission', '/telemetry': 'telemetry',
-      '/investigation': 'incidents', '/incidents': 'incidents', '/copilot': 'copilot',
-      '/evidence': 'evidence', '/security': 'security', '/audit': 'audit',
-      '/knowledge': 'evidence', '/settings': 'architecture', '/safety': 'safety',
-      '/architecture': 'architecture', '/ingestion': 'data',
-    }
-    const section = pathToSection[window.location.pathname]
-    if (section) window.setTimeout(() => document.getElementById(section)?.scrollIntoView({ behavior: 'smooth' }), 100)
-  }, [])
+    document.querySelector('.mission-content')?.scrollTo({ top: 0 })
+    document.querySelector('.mission-workspace-root')?.scrollTo({ top: 0 })
+  }, [routePath])
+
+  useEffect(() => {
+    window.localStorage.setItem('mission-ops-reduced-motion', String(reducedMotion))
+    document.documentElement.dataset.motion = reducedMotion ? 'reduced' : 'full'
+  }, [reducedMotion])
 
   const refreshData = useCallback(async () => {
     try {
@@ -280,16 +305,68 @@ function App() {
     }
   }, [analysisRequestKey, selectedSatellite, parameter, analysisWindowSeconds])
 
+  const replayRequestKey = `${chartSource}:${selectedSatellite}:${parameter}`
+  useEffect(() => {
+    if (chartSource !== 'REPLAY') return
+    let cancelled = false
+    api<ReplayResponse>(
+      `/api/telemetry/replay?spacecraft_id=${encodeURIComponent(selectedSatellite)}&parameter=${parameter}`,
+    ).then((result) => {
+      if (cancelled) return
+      setReplayData(result)
+      replayIndexRef.current = 0
+      setReplayIndex(0)
+      replayStartRef.current = Date.now()
+      setReplayPlaying(true)
+    }).catch((cause: unknown) => {
+      if (!cancelled) {
+        setReplayPlaying(false)
+        setError(cause instanceof Error ? cause.message : 'Bundled telemetry replay is unavailable.')
+      }
+    })
+    return () => { cancelled = true }
+  }, [replayRequestKey, chartSource, selectedSatellite, parameter])
+
+  useEffect(() => {
+    if (!replayPlaying || !replayData) return
+    replayStartRef.current = Date.now() - (replayIndexRef.current * replayData.sample_interval_ms) / replaySpeed
+    const timer = window.setInterval(() => {
+      const nextIndex = Math.min(
+        replayData.samples.length - 1,
+        Math.floor(((Date.now() - replayStartRef.current) * replaySpeed) / replayData.sample_interval_ms),
+      )
+      replayIndexRef.current = nextIndex
+      setReplayIndex(nextIndex)
+      if (nextIndex >= replayData.samples.length - 1) setReplayPlaying(false)
+    }, 100)
+    return () => window.clearInterval(timer)
+  }, [replayPlaying, replayData, replaySpeed])
+
   const analysisEntry = analysisResult?.key === analysisRequestKey ? analysisResult : null
   const analysis = analysisEntry?.data ?? null
   const analysisError = analysisEntry?.error ?? ''
   const analysisLoading = !analysis && !analysisError
   const selectedMetric = metrics[parameter]
   const primaryAsset = fleet.find((asset) => asset.id === 'ORBIT-X1')
-  const routeMatch = routePath.match(/^\/mission\/(orbit-x[12])(?:\/(overview|telemetry|incidents|communication|security|evidence|audit))?\/?$/i)
+  const routeMatch = routePath.match(/^\/mission\/(orbit-x[12])(?:\/(overview|telemetry|incidents|communication|security|evidence|audit|history))?\/?$/i)
   const missionRoute = routeMatch !== null
   const missionAssetId = routeMatch?.[1].toUpperCase() ?? selectedSatellite
-  const missionTab = (routeMatch?.[2]?.toLowerCase() ?? 'overview') as 'overview' | 'telemetry' | 'incidents' | 'communication' | 'security' | 'evidence' | 'audit'
+  const missionTab = (routeMatch?.[2]?.toLowerCase() ?? 'overview') as 'overview' | 'telemetry' | 'incidents' | 'communication' | 'security' | 'evidence' | 'audit' | 'history'
+  const activeView = missionRoute ? missionTab === 'overview' ? 'mission' : missionTab : WORKSPACE_NAV.find((item) => item.path === routePath)?.id ?? ({
+    '/dashboard': 'telemetry',
+    '/mission': 'mission',
+    '/telemetry': 'telemetry',
+    '/investigation': 'incidents',
+    '/incidents': 'incidents',
+    '/copilot': 'copilot',
+    '/evidence': 'evidence',
+    '/security': 'security',
+    '/audit': 'audit',
+    '/knowledge': 'evidence',
+    '/settings': 'settings',
+    '/safety': 'mission',
+    '/architecture': 'mission',
+  }[routePath] ?? 'home')
   const missionAsset = fleet.find((asset) => asset.id === missionAssetId)
   const activeAsset = fleet.find((asset) => asset.id === selectedSatellite) ?? primaryAsset
   const latestValue = activeAsset?.last_known_message.telemetry[parameter] ?? live?.values[parameter]
@@ -301,10 +378,34 @@ function App() {
   })
   const visibleChartPoints = missionChartPoints.filter((point) => Date.parse(point.timestamp) >= timeNow.getTime() - chartWindowSeconds * 1000)
   const chartStatus = !socketConnected ? 'paused' : activeAsset?.communication === 'CONNECTED' ? 'connected' : 'gap'
+  const replayReady = chartSource === 'REPLAY'
+    && replayData?.spacecraft_id === selectedSatellite
+    && replayData.parameter === parameter
+  const graphPoints = useMemo(() => {
+    if (chartSource !== 'REPLAY' || !replayReady || !replayData || replayIndex < 0) return chartSource === 'REPLAY' ? [] : visibleChartPoints
+    const firstVisibleIndex = Math.max(
+      0,
+      replayIndex - Math.ceil((chartWindowSeconds * 1000 * replaySpeed) / replayData.sample_interval_ms),
+    )
+    const renderNow = timeNow.getTime()
+    return replayData.samples.slice(firstVisibleIndex, replayIndex + 1).map((sample, offsetIndex) => {
+      const sampleIndex = firstVisibleIndex + offsetIndex
+      const elapsed = ((replayIndex - sampleIndex) * replayData.sample_interval_ms) / replaySpeed
+      return {
+        timestamp: new Date(renderNow - elapsed).toISOString(),
+        value: sample.value,
+        status: sample.status,
+      }
+    })
+  }, [chartSource, replayReady, replayData, replayIndex, replaySpeed, chartWindowSeconds, visibleChartPoints, timeNow])
+  const graphLatestValue = chartSource === 'REPLAY'
+    ? replayReady && replayIndex >= 0 ? replayData?.samples[replayIndex]?.value ?? null : null
+    : activeAsset?.communication === 'CONNECTED' ? latestValue ?? null : null
+  const graphStatus = chartSource === 'REPLAY' ? 'connected' : chartStatus
   const chartStats = useMemo(() => {
-    const values = visibleChartPoints.map((point) => point.value)
-    return { min: values.length ? Math.min(...values) : 0, max: values.length ? Math.max(...values) : 0, average: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0, anomalies: visibleChartPoints.filter((point) => point.status && point.status !== 'NORMAL').length }
-  }, [visibleChartPoints])
+    const values = graphPoints.map((point) => point.value)
+    return { min: values.length ? Math.min(...values) : 0, max: values.length ? Math.max(...values) : 0, average: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0, anomalies: graphPoints.filter((point) => point.status && point.status !== 'NORMAL').length }
+  }, [graphPoints])
   const analysisSamples = analysis?.samples ?? []
   const analysisMetricPoints = analysisSamples.map((sample) => sample.value)
   const analysisMean = analysis?.statistics.mean ?? null
@@ -317,6 +418,43 @@ function App() {
   const anomalousSamples = analysis?.anomaly_count ?? 0
   const filteredIncidents = incidents.filter((item) => incidentFilter === 'All' || item.status.toLowerCase() === incidentFilter.toLowerCase() || item.severity.toLowerCase() === incidentFilter.toLowerCase())
   const alarmCount = Object.values(live?.anomalies ?? {}).filter((item) => item.status !== 'NORMAL').length
+  const emergencySignature = [
+    ...Object.entries(live?.anomalies ?? {}).filter(([, value]) => value.status === 'CRITICAL').map(([name]) => `ORBIT-X1:${name}`),
+    ...fleet.filter((asset) => asset.health_state === 'CRITICAL').map((asset) => `${asset.id}:HEALTH`),
+  ].sort().join(',')
+
+  useEffect(() => {
+    if (!emergencySignature) {
+      lastEmergencySignatureRef.current = ''
+      return
+    }
+    if (!emergencyAudioEnabled || chartSource === 'REPLAY' || emergencySignature === lastEmergencySignatureRef.current) return
+    const context = audioContextRef.current
+    if (!context || context.state !== 'running') return
+    lastEmergencySignatureRef.current = emergencySignature
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    const start = context.currentTime
+    oscillator.type = 'sine'
+    oscillator.frequency.setValueAtTime(880, start)
+    oscillator.frequency.setValueAtTime(660, start + 0.19)
+    gain.gain.setValueAtTime(0.0001, start)
+    gain.gain.linearRampToValueAtTime(0.075, start + 0.025)
+    gain.gain.setValueAtTime(0.075, start + 0.13)
+    gain.gain.linearRampToValueAtTime(0.0001, start + 0.17)
+    gain.gain.setValueAtTime(0.0001, start + 0.22)
+    gain.gain.linearRampToValueAtTime(0.075, start + 0.245)
+    gain.gain.setValueAtTime(0.075, start + 0.34)
+    gain.gain.linearRampToValueAtTime(0.0001, start + 0.39)
+    oscillator.connect(gain)
+    gain.connect(context.destination)
+    oscillator.start(start)
+    oscillator.stop(start + 0.4)
+  }, [emergencySignature, emergencyAudioEnabled, chartSource])
+
+  useEffect(() => () => {
+    if (audioContextRef.current) void audioContextRef.current.close()
+  }, [])
 
   const postAction = async (path: string) => {
     try {
@@ -325,6 +463,57 @@ function App() {
       await refreshData()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Simulation action failed')
+    }
+  }
+
+  const startHistoricalReplay = () => {
+    setReplayData(null)
+    setReplayIndex(-1)
+    replayIndexRef.current = -1
+    setReplayPlaying(false)
+    setChartSource('REPLAY')
+  }
+
+  const returnToLiveTelemetry = () => {
+    setChartSource('LIVE')
+    setReplayPlaying(false)
+    setReplayData(null)
+    setReplayIndex(-1)
+    replayIndexRef.current = -1
+  }
+
+  const toggleReplayPlayback = () => {
+    if (!replayReady || !replayData) return
+    if (replayPlaying) {
+      setReplayPlaying(false)
+      return
+    }
+    if (replayIndex >= replayData.samples.length - 1) {
+      replayIndexRef.current = 0
+      setReplayIndex(0)
+    }
+    setReplayPlaying(true)
+  }
+
+  const changeReplaySpeed = (speed: number) => {
+    replayStartRef.current = Date.now() - (Math.max(0, replayIndexRef.current) * (replayData?.sample_interval_ms ?? 250)) / speed
+    setReplaySpeed(speed)
+  }
+
+  const toggleEmergencyAudio = async () => {
+    try {
+      if (emergencyAudioEnabled) {
+        setEmergencyAudioEnabled(false)
+        if (audioContextRef.current) await audioContextRef.current.suspend()
+        return
+      }
+      const context = audioContextRef.current ?? new window.AudioContext()
+      await context.resume()
+      audioContextRef.current = context
+      lastEmergencySignatureRef.current = ''
+      setEmergencyAudioEnabled(true)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Emergency audio could not be enabled.')
     }
   }
 
@@ -405,60 +594,48 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#05070B] text-slate-100">
-      <nav className="sticky top-0 z-40 border-b border-white/10 bg-[#05070B]/85 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between px-5 py-3 lg:px-10">
-          <div className="flex min-w-0 items-center gap-3">
-            <a href="#home" className="flex shrink-0 items-center gap-2.5" aria-label="Mission Operations Copilot home">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/15 text-[#00A8FF]"><Orbit size={19} /></div>
-              <span className="text-xs font-bold tracking-[0.15em] text-white">MISSION <span className="text-[#00A8FF]">OPS</span><span className="ml-1.5 text-[8px] font-medium tracking-wider text-slate-500">v{APP_VERSION}</span></span>
-            </a>
-            <label className="spacecraft-picker flex items-center gap-2 rounded-xl border border-sky-400/25 bg-sky-400/[.06] px-2.5 py-1.5">
-              <Satellite size={14} className="shrink-0 text-sky-300" />
-              <span className="hidden text-[8px] font-bold uppercase tracking-[.15em] text-slate-500 sm:inline">Spacecraft</span>
-              <select
-                aria-label="Select spacecraft"
-                value={selectedSatellite}
-                onChange={(event) => {
-                  const spacecraftId = event.target.value
-                  setSelectedSatellite(spacecraftId)
-                  navigateTo(`/mission/${spacecraftId.toLowerCase()}`)
-                }}
-                className="max-w-[116px] cursor-pointer bg-transparent text-[10px] font-bold tracking-wider text-sky-100 outline-none"
-              >
-                <option value="ORBIT-X1">ORBIT-X1</option>
-                <option value="ORBIT-X2">ORBIT-X2</option>
-              </select>
-            </label>
-          </div>
-          <div className="hidden items-center gap-5 xl:flex">
-            <details className="group relative">
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300 transition hover:text-white">
-                Features <ChevronDown size={13} className="transition group-open:rotate-180" />
-              </summary>
-              <div className="absolute right-0 top-full z-50 mt-3 grid min-w-48 gap-1 rounded-xl border border-slate-700 bg-[#07111F] p-2 shadow-2xl">
-                {NAV.map(([label, id]) => <a key={id} href={featureHref(id)} target="_blank" rel="noopener noreferrer" className="rounded-lg px-3 py-2 text-[10px] uppercase tracking-widest text-slate-300 transition hover:bg-slate-800 hover:text-white">{label}</a>)}
-              </div>
-            </details>
-            <a href="#contact" className="rounded-lg bg-blue-600 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-white transition hover:bg-blue-500">Start demo</a>
-          </div>
-          <button onClick={() => setMobileMenu((open) => !open)} className="rounded-lg border border-slate-700 p-2 text-slate-200 xl:hidden" aria-label="Toggle navigation">{mobileMenu ? <X size={18} /> : <Menu size={18} />}</button>
+    <div className="mission-shell min-h-screen bg-[#05070B] text-slate-100">
+      <header className="mission-topbar">
+        <a href="/" onClick={(event) => { event.preventDefault(); navigateTo('/') }} className="mission-brand" aria-label="Mission Operations Copilot home">
+          <span className="mission-brand-mark"><Orbit size={18} /></span>
+          <span>MISSION <strong>OPS</strong><small>v{APP_VERSION}</small></span>
+        </a>
+        <label className="spacecraft-picker flex items-center gap-2 rounded-xl border border-sky-400/25 bg-sky-400/[.06] px-2.5 py-1.5">
+          <Satellite size={14} className="shrink-0 text-sky-300" />
+          <span className="hidden text-[8px] font-bold uppercase tracking-[.15em] text-slate-500 sm:inline">Spacecraft</span>
+          <select aria-label="Select spacecraft" value={selectedSatellite} onChange={(event) => {
+            const spacecraftId = event.target.value
+            setSelectedSatellite(spacecraftId)
+            navigateTo(`/mission/${spacecraftId.toLowerCase()}`)
+          }} className="max-w-[116px] cursor-pointer bg-transparent text-[10px] font-bold tracking-wider text-sky-100 outline-none">
+            <option value="ORBIT-X1">ORBIT-X1</option>
+            <option value="ORBIT-X2">ORBIT-X2</option>
+          </select>
+        </label>
+        <div className="mission-topbar-status">
+          <span><i className={socketConnected ? 'is-connected' : 'is-waiting'} />{socketConnected ? 'SIMULATION STREAM' : 'STREAM RECONNECTING'}</span>
+          <span className="mission-clock">{timeNow.toISOString().slice(11, 19)} UTC</span>
+          <span className="mission-mode">DECISION SUPPORT · NO COMMANDS</span>
         </div>
-        {mobileMenu && <div className="border-t border-slate-800 bg-[#07111F] p-4 xl:hidden">
-          <details className="group">
-            <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-widest text-slate-200">
-              Features <ChevronDown size={15} className="transition group-open:rotate-180" />
-            </summary>
-            <div className="mt-1 grid gap-1 border-l border-slate-700 pl-3">
-              {NAV.map(([label, id]) => <a onClick={() => setMobileMenu(false)} key={id} href={featureHref(id)} target="_blank" rel="noopener noreferrer" className="rounded-lg px-3 py-2 text-xs uppercase tracking-widest text-slate-300 hover:bg-slate-800">{label}</a>)}
-            </div>
-          </details>
-          <a href="#contact" className="mt-2 block rounded-lg bg-blue-600 px-3 py-2 text-xs uppercase tracking-widest">Start demo</a>
-        </div>}
-      </nav>
+      </header>
+
+      <aside className="mission-sidebar" aria-label="Mission navigation">
+        <div className="mission-nav-heading">WORKSPACE</div>
+        <nav className="mission-nav-list">
+          {WORKSPACE_NAV.filter((item) => item.id !== 'settings').map(({ label, id, path, icon: Icon }) => <button key={id} type="button" onClick={() => navigateTo(path)} aria-current={activeView === id ? 'page' : undefined} className={`mission-nav-item ${activeView === id ? 'is-active' : ''}`} title={label}>
+            <Icon size={16} aria-hidden="true" /><span>{label}</span>
+          </button>)}
+        </nav>
+        <div className="mission-nav-bottom">
+          {WORKSPACE_NAV.filter((item) => item.id === 'settings').map(({ label, id, path, icon: Icon }) => <button key={id} type="button" onClick={() => navigateTo(path)} aria-current={activeView === id ? 'page' : undefined} className={`mission-nav-item ${activeView === id ? 'is-active' : ''}`} title={label}>
+            <Icon size={16} aria-hidden="true" /><span>{label}</span>
+          </button>)}
+          <div className="mission-nav-footnote">SIMULATION ENVIRONMENT</div>
+        </div>
+      </aside>
 
       {error && <div role="alert" className="fixed right-4 top-20 z-50 max-w-lg rounded-xl border border-amber-500/30 bg-[#121821] p-4 text-sm text-amber-100 shadow-2xl"><div className="flex items-center justify-between gap-4"><span>{error}</span><button onClick={() => setError('')} aria-label="Dismiss error"><X size={16} /></button></div></div>}
-      {incidentAlert && <div role="alert" className="fixed right-4 top-20 z-40 max-w-md rounded-xl border border-red-500/35 bg-[#160b10]/95 p-4 shadow-2xl backdrop-blur"><div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-red-200"><AlertTriangle size={14} /> High severity · INC-024</div><p className="mt-2 text-sm font-semibold text-white">Battery Voltage Degradation</p><button onClick={() => { setQuery('What happened in INC-024?'); setIncidentAlert(false); document.getElementById('copilot')?.scrollIntoView({ behavior: 'smooth' }) }} className="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-200 underline underline-offset-4">Investigate</button></div><button onClick={() => setIncidentAlert(false)} aria-label="Dismiss incident alert" className="text-slate-400 hover:text-white"><X size={15} /></button></div></div>}
+      {incidentAlert && <div role="alert" className="fixed right-4 top-20 z-40 max-w-md rounded-xl border border-red-500/35 bg-[#160b10]/95 p-4 shadow-2xl backdrop-blur"><div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-red-200"><AlertTriangle size={14} /> High severity · INC-024</div><p className="mt-2 text-sm font-semibold text-white">Battery Voltage Degradation</p><button onClick={() => { setQuery('What happened in INC-024?'); setIncidentAlert(false); navigateTo('/workspace/copilot') }} className="mt-3 text-[10px] font-bold uppercase tracking-widest text-red-200 underline underline-offset-4">Investigate</button></div><button onClick={() => setIncidentAlert(false)} aria-label="Dismiss incident alert" className="text-slate-400 hover:text-white"><X size={15} /></button></div></div>}
 
       {missionRoute && missionAsset && <MissionWorkspace
         key={`${missionAsset.id}-${missionTab}`}
@@ -476,8 +653,8 @@ function App() {
         onDemoAction={runDemoAction}
       />}
 
-      {!missionRoute && <main>
-        <Suspense fallback={<section id="home" className="flex h-[calc(100svh-61px)] items-center justify-center bg-[#020712] text-xs font-semibold uppercase tracking-widest text-sky-200">Loading 3D simulated mission view…</section>}>
+      {!missionRoute && <main className="mission-content" data-active-view={activeView}>
+        <Suspense fallback={<section id="home" className="flex h-full min-h-[520px] items-center justify-center bg-[#020712] text-xs font-semibold uppercase tracking-widest text-sky-200">Loading 3D simulated mission view…</section>}>
           <SpaceMissionScene
             fleet={fleet}
             groundStations={groundStations}
@@ -500,7 +677,7 @@ function App() {
           <div className="mx-auto max-w-[1440px]">
             <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
               <div><div className="text-[9px] font-semibold uppercase tracking-[.28em] text-sky-300">LIVE MISSION PREVIEW · SHARED BACKEND STATE</div><h2 className="mt-2 text-2xl font-semibold text-white">Select your spacecraft</h2><p className="mt-2 text-xs text-slate-400">SIMULATED MISSION DATA · refreshed over the mission WebSocket</p></div>
-              <a href="#telemetry" className="text-[9px] font-bold uppercase tracking-widest text-sky-200 hover:text-white">Explore live mission <ArrowRight className="ml-1 inline" size={12} /></a>
+              <button onClick={() => navigateTo('/workspace/telemetry')} className="text-[9px] font-bold uppercase tracking-widest text-sky-200 hover:text-white">Explore live mission <ArrowRight className="ml-1 inline" size={12} /></button>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               {fleet.map((asset) => <button key={asset.id} onClick={() => navigateTo(`/mission/${asset.id.toLowerCase()}`)} className={`mission-preview-card rounded-xl border p-4 text-left transition ${selectedSatellite === asset.id ? 'border-sky-400/50 bg-sky-400/[.06]' : 'border-slate-800 bg-[#07111F] hover:border-slate-600'}`}>
@@ -601,7 +778,7 @@ function App() {
                         ? <button onClick={() => void runDemoAction('/api/demo/communication-loss', asset.id)} className="rounded-md border border-red-500/25 px-2 py-2 text-[8px] font-bold uppercase tracking-wider text-red-200 hover:bg-red-500/10">Simulate link loss</button>
                         : <button onClick={() => void runDemoAction('/api/demo/reconnect', asset.id)} className="rounded-md border border-emerald-500/25 px-2 py-2 text-[8px] font-bold uppercase tracking-wider text-emerald-200 hover:bg-emerald-500/10">Restore communication</button>}
                       <button onClick={() => void runDemoAction('/api/demo/security-event', asset.id)} className="rounded-md border border-violet-500/25 px-2 py-2 text-[8px] font-bold uppercase tracking-wider text-violet-200 hover:bg-violet-500/10">Simulate security event</button>
-                      <button onClick={() => { setQuery(`Was ${asset.id} hacked?`); document.getElementById('copilot')?.scrollIntoView({ behavior: 'smooth' }) }} className="rounded-md border border-slate-700 px-2 py-2 text-[8px] font-bold uppercase tracking-wider text-slate-300 hover:bg-slate-800">Investigate security</button>
+                      <button onClick={() => { setQuery(`Was ${asset.id} hacked?`); navigateTo('/workspace/copilot') }} className="rounded-md border border-slate-700 px-2 py-2 text-[8px] font-bold uppercase tracking-wider text-slate-300 hover:bg-slate-800">Investigate security</button>
                     </div>
                   </article>)}
                 </div>
@@ -617,21 +794,36 @@ function App() {
 
             <div className={`${card} mt-5 p-5`}>
               <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-                <div><div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-blue-300">HIGH-FREQUENCY SIGNAL · {selectedSatellite} · <span className="signal-live">LIVE ●</span></div><h3 className="mt-1 text-xl font-semibold text-white">{PARAMS.find((item) => item.id === parameter)?.label} trend</h3></div>
-                <div className="flex flex-wrap gap-2">
+                <div><div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-blue-300">HIGH-FREQUENCY SIGNAL · {selectedSatellite} · <span className={chartSource === 'REPLAY' ? 'text-amber-300' : 'signal-live'}>{chartSource === 'REPLAY' ? 'SIMULATED TRACE REPLAY' : 'LIVE ●'}</span></div><h3 className="mt-1 text-xl font-semibold text-white">{PARAMS.find((item) => item.id === parameter)?.label} trend</h3></div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {chartSource === 'LIVE' ? (
+                    <button onClick={startHistoricalReplay} className="rounded-lg border border-amber-400/30 bg-amber-400/[.07] px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-amber-100 hover:bg-amber-400/15">Replay bundled telemetry</button>
+                  ) : (
+                    <>
+                      <button onClick={toggleReplayPlayback} disabled={!replayReady} className="rounded-lg border border-amber-400/30 bg-amber-400/[.07] px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-amber-100 hover:bg-amber-400/15 disabled:opacity-50">{!replayReady ? 'Loading trace…' : replayPlaying ? 'Pause replay' : replayIndex >= (replayData?.samples.length ?? 0) - 1 ? 'Replay again' : 'Resume replay'}</button>
+                      <label className="sr-only" htmlFor="replay-speed">Historical replay speed</label>
+                      <select id="replay-speed" value={replaySpeed} onChange={(event) => changeReplaySpeed(Number(event.target.value))} className="rounded-lg border border-slate-700 bg-[#07111F] px-2 py-2 text-[9px] text-white"><option value={1}>1×</option><option value={4}>4×</option><option value={16}>16×</option></select>
+                      <button onClick={returnToLiveTelemetry} className="rounded-lg border border-slate-700 px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-slate-300 hover:text-white">Return to live</button>
+                    </>
+                  )}
+                  <button onClick={() => void toggleEmergencyAudio()} aria-pressed={emergencyAudioEnabled} className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[9px] font-bold uppercase tracking-widest ${emergencyAudioEnabled ? 'border-red-400/35 bg-red-400/10 text-red-200' : 'border-slate-700 text-slate-400 hover:text-white'}`} title="Sound is emitted only for a live critical or emergency state">
+                    {emergencyAudioEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
+                    {emergencyAudioEnabled ? 'Emergency audio armed' : 'Arm emergency audio'}
+                  </button>
                   <label className="sr-only" htmlFor="metric-select">Select telemetry parameter</label>
                   <select id="metric-select" value={parameter} onChange={(event) => setParameter(event.target.value as Parameter)} className="rounded-lg border border-slate-700 bg-[#07111F] px-3 py-2 text-xs text-white">{PARAMS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
                   <label className="sr-only" htmlFor="range-select">Select telemetry visible time range</label>
                   <select id="range-select" value={chartWindowSeconds} onChange={(event) => setChartWindowSeconds(Number(event.target.value))} className="rounded-lg border border-slate-700 bg-[#07111F] px-3 py-2 text-xs text-white"><option value={15}>15 sec</option><option value={30}>30 sec</option><option value={60}>60 sec</option><option value={300}>5 min</option></select>
                 </div>
               </div>
+              {chartSource === 'REPLAY' && <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/15 bg-amber-400/[.04] px-3 py-2 text-[9px] text-amber-100"><span>SIMULATED REPLAY DATA · recorded {replayReady && replayIndex >= 0 ? fmtTime(replayData.samples[replayIndex]?.timestamp) : 'loading trace'}</span><span>{replayReady ? `${Math.max(0, replayIndex + 1).toLocaleString()} / ${replayData.samples.length.toLocaleString()} samples · ${replaySpeed}×` : 'Loading bundled samples…'}</span></div>}
               <div className="h-[300px] w-full overflow-hidden rounded-xl border border-slate-800">
-                <LiveSignalCanvas points={visibleChartPoints} latestValue={activeAsset?.communication === 'CONNECTED' ? latestValue ?? null : null} unit={PARAMS.find((item) => item.id === parameter)?.unit ?? ''} windowSeconds={chartWindowSeconds} status={chartStatus} label={PARAMS.find((item) => item.id === parameter)?.label ?? parameter} warningValue={selectedMetric?.warning} />
+                <LiveSignalCanvas points={graphPoints} latestValue={graphLatestValue} unit={PARAMS.find((item) => item.id === parameter)?.unit ?? ''} windowSeconds={chartWindowSeconds} status={graphStatus} label={PARAMS.find((item) => item.id === parameter)?.label ?? parameter} warningValue={selectedMetric?.warning} />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-800 pt-4 md:grid-cols-4">
                 {[['CURRENT', latestValue], ['MINIMUM', chartStats.min], ['MAXIMUM', chartStats.max], ['AVERAGE', chartStats.average]].map(([label, value]) => <div key={label as string}><div className="text-[9px] tracking-[0.2em] text-slate-500">{label}</div><div className="mt-1 text-sm font-semibold text-slate-100">{typeof value === 'number' ? `${value.toFixed(2)} ${PARAMS.find((item) => item.id === parameter)?.unit}` : '—'}</div></div>)}
               </div>
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4 text-[10px] uppercase tracking-widest text-slate-400"><span>Anomaly count in view: <strong className="text-amber-300">{chartStats.anomalies}</strong></span><span>Isolation Forest score: <strong className="text-white">{activeAsset?.anomaly_score ?? anomaly?.anomaly_score?.toFixed(2) ?? '—'}</strong></span><span className={simulationRunning && activeAsset?.communication === 'CONNECTED' ? 'text-emerald-300' : 'text-amber-300'}>{!simulationRunning ? '■ PAUSED' : activeAsset?.communication !== 'CONNECTED' ? '■ TELEMETRY HELD · LINK LOST' : '● STREAMING · 5 HZ SAMPLES / 60 FPS DISPLAY'}</span></div>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4 text-[10px] uppercase tracking-widest text-slate-400"><span>Anomaly count in view: <strong className="text-amber-300">{chartStats.anomalies}</strong></span><span>Isolation Forest score: <strong className="text-white">{activeAsset?.anomaly_score ?? anomaly?.anomaly_score?.toFixed(2) ?? '—'}</strong></span><span className={chartSource === 'REPLAY' ? 'text-amber-300' : simulationRunning && activeAsset?.communication === 'CONNECTED' ? 'text-emerald-300' : 'text-amber-300'}>{chartSource === 'REPLAY' ? replayPlaying ? '▶ HISTORICAL TRACE PLAYING' : '■ HISTORICAL TRACE PAUSED' : !simulationRunning ? '■ PAUSED' : activeAsset?.communication !== 'CONNECTED' ? '■ TELEMETRY HELD · LINK LOST' : '● STREAMING · 5 HZ SAMPLES / 60 FPS DISPLAY'}</span></div>
             </div>
 
             <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_0.85fr]">
@@ -704,7 +896,7 @@ function App() {
               {filteredIncidents.map((item) => <article key={item.id} className={`${card} p-5`}>
                 <div className="flex items-center justify-between gap-3"><span className="text-[10px] font-bold tracking-[0.2em] text-blue-300">{item.id}</span><span className={`rounded-full px-2 py-1 text-[9px] font-bold tracking-widest ${item.status === 'ACTIVE' ? 'bg-red-500/10 text-red-200' : 'bg-slate-700/50 text-slate-300'}`}>{item.severity} · {item.status}</span></div>
                 <h3 className="mt-4 text-base font-semibold text-white">{item.title}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{item.summary}</p>
-                <div className="mt-4 flex items-center justify-between border-t border-slate-800 pt-3 text-[9px] uppercase tracking-widest text-slate-500"><span>{item.subsystem}</span><button onClick={() => { setQuery(`What happened in ${item.id}?`); document.getElementById('copilot')?.scrollIntoView({ behavior: 'smooth' }) }} className="inline-flex items-center gap-1 text-blue-300 hover:text-white">Investigate <ArrowUpRight size={12} /></button></div>
+                <div className="mt-4 flex items-center justify-between border-t border-slate-800 pt-3 text-[9px] uppercase tracking-widest text-slate-500"><span>{item.subsystem}</span><button onClick={() => { setQuery(`What happened in ${item.id}?`); navigateTo('/workspace/copilot') }} className="inline-flex items-center gap-1 text-blue-300 hover:text-white">Investigate <ArrowUpRight size={12} /></button></div>
               </article>)}
             </div>
             <div className="mt-5 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
@@ -729,7 +921,12 @@ function App() {
 
         <section id="copilot" className="scroll-mt-20 border-y border-slate-800/70 bg-[#060B12] px-5 py-20 lg:px-10 lg:py-28">
           <div className="mx-auto max-w-[1440px]">
-            <SectionTitle eyebrow="04 / AI INVESTIGATION" title="Ask. Retrieve. Validate. Abstain." summary="Local deterministic reasoning retrieves stored evidence before responding. Claims are separated from hypotheses, and unsupported questions return insufficient evidence rather than a guess." />
+            <SectionTitle eyebrow="04 / MISSION AI" title="Ask the data. See the workflow." summary="A persistent satellite-analysis chat grounded in telemetry, procedures, security indicators, and mission history, alongside an automatic read-only monitoring workflow." />
+            <MissionAIConsole spacecraftId={selectedSatellite} />
+            <div className="mb-5 border-t border-slate-800 pt-10">
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-500">Evidence investigation</div>
+              <p className="text-xs leading-5 text-slate-400">Structured investigation results with claim validation, confidence, and missing evidence.</p>
+            </div>
             <div className="grid gap-5 xl:grid-cols-[0.7fr_1.3fr]">
               <div className={`${card} p-5`}>
                 <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white"><BrainCircuit className="h-4 w-4 text-[#00A8FF]" /> Evidence-grounded copilot</div>
@@ -919,6 +1116,22 @@ function App() {
               </div>
             </div>
             <p className="mt-4 text-[9px] leading-5 text-slate-500">Statistics are calculated by the API from persisted samples, refreshed every 5 seconds, and do not depend on the browser session’s in-memory history. A missing link creates no substitute data. Trend and correlation are descriptive operator aids, not diagnoses, causation, or proof of physical failure.</p>
+          </div>
+        </section>
+
+        <section id="settings" className="scroll-mt-20 px-5 py-10 lg:px-10 lg:py-12">
+          <div className="mx-auto max-w-[1000px]">
+            <SectionTitle eyebrow="OPERATOR PREFERENCES" title="Workspace settings." summary="These preferences affect this browser only. Mission data and backend simulation behavior are unchanged." />
+            <div className={`${card} flex flex-wrap items-center justify-between gap-5 p-5`}>
+              <div>
+                <h3 className="text-sm font-semibold text-white">Reduce interface motion</h3>
+                <p className="mt-1 max-w-xl text-xs leading-5 text-slate-400">Reduce decorative transitions and animations while keeping live telemetry and mission state updates active.</p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-3 rounded-lg border border-slate-700 px-4 py-3 text-xs font-semibold text-slate-200">
+                <input type="checkbox" checked={reducedMotion} onChange={(event) => setReducedMotion(event.target.checked)} className="accent-sky-400" />
+                {reducedMotion ? 'Reduced motion on' : 'Reduced motion off'}
+              </label>
+            </div>
           </div>
         </section>
       </main>}

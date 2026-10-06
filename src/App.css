@@ -3,6 +3,78 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 20px 45px rgba(5, 7, 11, 0.45);
 }
 
+.mission-ai-messages {
+  scrollbar-color: #334155 #07111f;
+  scrollbar-width: thin;
+}
+
+.mission-ai-message-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.space-mission-scene canvas {
+  cursor: grab;
+}
+
+.space-mission-scene canvas:active {
+  cursor: grabbing;
+}
+
+.earth-cursor {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.earth-cursor-reticle {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(125, 211, 252, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.4), inset 0 0 10px rgba(56, 189, 248, 0.16);
+}
+
+.earth-cursor-reticle::before,
+.earth-cursor-reticle::after {
+  position: absolute;
+  top: 14px;
+  left: -5px;
+  width: 38px;
+  height: 1px;
+  background: rgba(125, 211, 252, 0.85);
+  content: '';
+}
+
+.earth-cursor-reticle::after {
+  top: -5px;
+  left: 14px;
+  width: 1px;
+  height: 38px;
+}
+
+.earth-cursor-reticle.is-dragging {
+  border-color: rgba(167, 243, 208, 0.95);
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.45);
+}
+
+.earth-cursor-label {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  white-space: nowrap;
+  border: 1px solid rgba(125, 211, 252, 0.25);
+  border-radius: 4px;
+  background: rgba(2, 7, 18, 0.82);
+  padding: 3px 5px;
+  color: #bae6fd;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
 ::selection {
   background: rgba(22, 119, 255, 0.42);
   color: #f5f7fa;
@@ -294,12 +366,272 @@
   animation: signal-blink 1.8s ease-in-out infinite;
 }
 
-@media (pointer: fine) {
-  body,
-  button,
-  a {
-    cursor: none;
-  }
+.mission-shell {
+  display: grid;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-rows: 62px minmax(0, 1fr);
+  overflow: hidden;
+  background: #050a12;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#root {
+  height: 100dvh;
+}
+
+.mission-topbar {
+  z-index: 40;
+  display: flex;
+  min-width: 0;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-items: center;
+  gap: 1.25rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.13);
+  background: rgba(5, 10, 18, 0.96);
+  padding: 0 1.25rem;
+}
+
+.mission-brand {
+  display: inline-flex;
+  flex: 0 0 196px;
+  align-items: center;
+  gap: 0.65rem;
+  color: #f8fafc;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-decoration: none;
+}
+
+.mission-brand strong {
+  color: #67c7ff;
+}
+
+.mission-brand small {
+  margin-left: 0.45rem;
+  color: #64748b;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.mission-brand-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 9px;
+  background: rgba(14, 165, 233, 0.09);
+  color: #67c7ff;
+}
+
+.mission-topbar-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 1.25rem;
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.mission-topbar-status > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.mission-topbar-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.mission-topbar-status i.is-connected {
+  background: #4ade80;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.55);
+}
+
+.mission-topbar-status i.is-waiting {
+  background: #fbbf24;
+}
+
+.mission-clock {
+  color: #dbeafe;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+.mission-mode {
+  border-left: 1px solid #1e293b;
+  padding-left: 1.25rem;
+  color: #64748b;
+}
+
+.mission-sidebar {
+  z-index: 30;
+  display: flex;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 2;
+  flex-direction: column;
+  overflow-y: auto;
+  border-right: 1px solid rgba(148, 163, 184, 0.13);
+  background: #070d16;
+  padding: 1rem 0.75rem;
+}
+
+.mission-nav-heading {
+  padding: 0.25rem 0.7rem 0.8rem;
+  color: #475569;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.mission-nav-list {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.mission-nav-item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0 0.7rem;
+  color: #94a3b8;
+  cursor: pointer;
+  text-align: left;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.mission-nav-item span {
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mission-nav-item:hover {
+  border-color: rgba(71, 85, 105, 0.42);
+  background: rgba(30, 41, 59, 0.42);
+  color: #e2e8f0;
+}
+
+.mission-nav-item.is-active {
+  border-color: rgba(56, 189, 248, 0.13);
+  background: linear-gradient(90deg, rgba(14, 116, 183, 0.17), rgba(14, 116, 183, 0.04));
+  color: #d9f2ff;
+}
+
+.mission-nav-item.is-active::before {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: -0.76rem;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.45);
+  content: '';
+}
+
+.mission-nav-item.is-active svg {
+  color: #7dd3fc;
+}
+
+.mission-nav-bottom {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: auto;
+  padding-top: 1rem;
+}
+
+.mission-nav-footnote {
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  padding: 0.8rem 0.7rem 0.15rem;
+  color: #475569;
+  font-size: 7px;
+  letter-spacing: 0.14em;
+}
+
+.mission-content {
+  min-width: 0;
+  min-height: 0;
+  grid-column: 2;
+  grid-row: 2;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #334155 #080e17;
+  scrollbar-width: thin;
+}
+
+.mission-content > * {
+  display: none;
+}
+
+.mission-content[data-active-view='home'] {
+  overflow: hidden;
+}
+
+.mission-content[data-active-view='home'] > #home,
+.mission-content[data-active-view='mission'] > #mission-preview,
+.mission-content[data-active-view='mission'] > #mission,
+.mission-content[data-active-view='satellites'] > #mission-preview,
+.mission-content[data-active-view='telemetry'] > #telemetry,
+.mission-content[data-active-view='demo'] > #telemetry,
+.mission-content[data-active-view='copilot'] > #copilot,
+.mission-content[data-active-view='analysis'] > #analysis,
+.mission-content[data-active-view='incidents'] > #incidents,
+.mission-content[data-active-view='settings'] > #settings {
+  display: block;
+}
+
+.mission-content[data-active-view='home'] > #home {
+  height: 100%;
+  min-height: 0;
+  border-bottom: 0;
+}
+
+.mission-content[data-active-view='settings'] > #settings {
+  min-height: 100%;
+}
+
+.mission-workspace-root {
+  min-width: 0;
+  min-height: 0 !important;
+  grid-column: 2;
+  grid-row: 2;
+  overflow: auto;
+  padding-top: 1.25rem;
+}
+
+.mission-shell > footer {
+  display: none;
 }
 
 @keyframes star-drift {
@@ -339,6 +671,60 @@
 }
 
 @media (max-width: 640px) {
+  .mission-shell {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .mission-topbar {
+    gap: 0.55rem;
+    padding: 0 0.6rem;
+  }
+
+  .mission-brand {
+    flex-basis: 32px;
+  }
+
+  .mission-brand > span:last-child,
+  .mission-nav-heading,
+  .mission-nav-item span,
+  .mission-nav-footnote,
+  .mission-topbar-status .mission-mode {
+    display: none;
+  }
+
+  .mission-sidebar {
+    align-items: center;
+    padding: 0.8rem 0.35rem;
+  }
+
+  .mission-nav-list,
+  .mission-nav-bottom {
+    width: 100%;
+  }
+
+  .mission-nav-item {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .mission-nav-item.is-active::before {
+    left: -0.36rem;
+  }
+
+  .mission-topbar-status {
+    gap: 0.55rem;
+    font-size: 7px;
+    letter-spacing: 0.06em;
+  }
+
+  .mission-clock {
+    font-size: 8px;
+  }
+
+  .mission-workspace-root {
+    padding: 1rem 0.75rem;
+  }
+
   .earth-atmosphere {
     top: 34%;
     right: -48%;
@@ -362,4 +748,13 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+html[data-motion='reduced'] *,
+html[data-motion='reduced'] *::before,
+html[data-motion='reduced'] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }

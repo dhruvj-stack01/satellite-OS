@@ -35,7 +35,7 @@ type MissionEvidence = { id: string; title: string; type: string; content: strin
 type MissionAudit = { id: number; timestamp: string; action: string; details: string }
 type Answer = { evidence_sufficiency: string; observed_facts: string[]; hypothesis: string; recommendation: string; missing_evidence: string[]; sources: MissionEvidence[] }
 type MissionSample = { timestamp: string; values: Record<string, number> }
-type Tab = 'overview' | 'telemetry' | 'incidents' | 'communication' | 'security' | 'evidence' | 'audit'
+type Tab = 'overview' | 'telemetry' | 'incidents' | 'communication' | 'security' | 'evidence' | 'audit' | 'history'
 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'overview', label: 'Overview' },
@@ -45,6 +45,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'security', label: 'Security' },
   { id: 'evidence', label: 'Evidence' },
   { id: 'audit', label: 'Audit' },
+  { id: 'history', label: 'History' },
 ]
 const metrics = [
   ['battery_voltage', 'Battery voltage', 'V'],
@@ -142,7 +143,7 @@ export default function MissionWorkspace({
   }
 
   return (
-    <section className="mission-workspace min-h-[calc(100vh-60px)] px-4 py-6 sm:px-6 lg:px-10">
+    <section className="mission-workspace mission-workspace-root min-h-[calc(100vh-60px)] px-4 py-6 sm:px-6 lg:px-10">
       <div className="mx-auto max-w-[1500px]">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -256,7 +257,35 @@ export default function MissionWorkspace({
 
         {tab === 'audit' && <section className="mission-panel p-5"><h2 className="text-lg font-semibold text-white">Audit trail · {asset.id}</h2><div className="mt-4 space-y-2">{scopedAudits.map((item) => <article key={item.id} className="flex flex-wrap justify-between gap-3 rounded-lg border border-slate-800 bg-black/20 p-3"><span className="text-[9px] font-bold uppercase tracking-widest text-sky-300">{item.action}</span><span className="text-[9px] text-slate-400">{time(item.timestamp)}</span><p className="w-full text-[9px] text-slate-400">{item.details}</p></article>)}</div>{scopedAudits.length === 0 && <p className="mt-4 text-xs text-slate-500">No audit records currently identify this spacecraft.</p>}</section>}
 
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[8px] uppercase tracking-widest text-slate-600"><span>SIMULATED MISSION DATA · NO REAL SPACECRAFT CONNECTION</span><button onClick={() => onNavigate('/#mission')} className="inline-flex items-center gap-2 text-slate-400 hover:text-white">Mission overview <ArrowRight size={11} /></button></div>
+        {tab === 'history' && <section className="mission-panel p-5">
+          <h2 className="text-lg font-semibold text-white">Mission history · {asset.id}</h2>
+          <p className="mt-1 text-[10px] text-slate-500">Telemetry samples and events retained by the current demo backend.</p>
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <div className="rounded-xl border border-slate-800 bg-black/20 p-4">
+              <h3 className="text-[9px] font-bold uppercase tracking-widest text-sky-300">Telemetry history</h3>
+              <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
+                {[...history].reverse().slice(0, 30).map((sample) => <div key={sample.timestamp} className="grid grid-cols-[1fr_auto_auto] gap-3 rounded-lg border border-slate-800/70 px-3 py-2 text-[9px]">
+                  <span className="text-slate-400">{time(sample.timestamp)}</span>
+                  <span className="text-slate-200">{sample.values.battery_voltage?.toFixed(2) ?? '—'} V</span>
+                  <span className="text-slate-400">{sample.values.battery_temperature?.toFixed(1) ?? '—'} °C</span>
+                </div>)}
+                {history.length === 0 && <p className="text-xs text-slate-500">No telemetry samples are available.</p>}
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-black/20 p-4">
+              <h3 className="text-[9px] font-bold uppercase tracking-widest text-sky-300">Mission events</h3>
+              <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto">
+                {scopedEvents.map((event, index) => <article key={`${event.timestamp ?? 'event'}-${index}`} className="rounded-lg border border-slate-800/70 p-3">
+                  <div className="flex flex-wrap justify-between gap-2 text-[9px] text-slate-500"><span>{event.event_type ?? event.type ?? 'MISSION EVENT'}</span><span>{event.timestamp ? time(event.timestamp) : 'Time unavailable'}</span></div>
+                  <p className="mt-2 text-xs text-slate-300">{event.description ?? event.message ?? event.event_type ?? 'Recorded mission event'}</p>
+                </article>)}
+                {scopedEvents.length === 0 && <p className="text-xs text-slate-500">No mission events are available for this spacecraft.</p>}
+              </div>
+            </div>
+          </div>
+        </section>}
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[8px] uppercase tracking-widest text-slate-600"><span>SIMULATED MISSION DATA · NO REAL SPACECRAFT CONNECTION</span><button onClick={() => onNavigate('/workspace/mission')} className="inline-flex items-center gap-2 text-slate-400 hover:text-white">Mission overview <ArrowRight size={11} /></button></div>
       </div>
     </section>
   )
